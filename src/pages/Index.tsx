@@ -17,11 +17,16 @@ export default function Index() {
       const moved = game.doMove(dir);
       if (!moved) return;
 
-      // If wallet connected, send transaction
-      if (wallet.address) {
+      // If wallet connected, send transaction (MetaMask popup)
+      if (wallet.address && wallet.sendMoveTx) {
         setPendingMove(true);
-        await wallet.sendMoveTx(dir, game.moveCount + 1);
-        setPendingMove(false);
+        try {
+          await wallet.sendMoveTx(dir, game.moveCount + 1);
+        } catch (e) {
+          console.error("Move tx failed:", e);
+        } finally {
+          setPendingMove(false);
+        }
       }
     },
     [pendingMove, game.gameOver, game.doMove, game.moveCount, wallet.address, wallet.sendMoveTx]

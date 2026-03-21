@@ -99,8 +99,8 @@ function rotateGrid(tiles: TileData[], times: number): TileData[] {
 }
 
 function move(tiles: TileData[], direction: Direction): { tiles: TileData[]; scoreDelta: number; moved: boolean } {
-  const rotations: Record<Direction, number> = { left: 0, up: 1, right: 2, down: 3 };
-  const reverseRotations: Record<Direction, number> = { left: 0, up: 3, right: 2, down: 1 };
+  const rotations: Record<Direction, number> = { left: 0, down: 1, right: 2, up: 3 };
+  const reverseRotations: Record<Direction, number> = { left: 0, down: 3, right: 2, up: 1 };
 
   const rotated = rotateGrid(tiles, rotations[direction]);
   const result = moveLeft(rotated);
