@@ -107,31 +107,13 @@ export function useArcWallet() {
     try {
       await ensureArcNetwork(eth);
 
-      // Path A: App Kit send (official Arc App Kit flow)
-      if (kitRef.current && adapterRef.current) {
-        const result = await kitRef.current.send({
-          from: { adapter: adapterRef.current, chain: "Arc_Testnet" },
-          to: RECIPIENT,
-          amount: MOVE_AMOUNT,
-          token: "USDC",
-        });
-
-        const txHash = (result as { txHash?: string })?.txHash;
-        if (txHash) {
-          const txResult: TxResult = { hash: txHash, direction, moveNumber };
-          setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
-          return txResult;
-        }
-      }
-
-      // Path B fallback: direct wallet tx to force popup reliably in all wallets
-      if (!signerRef.current) {
-        const browserProvider = new BrowserProvider(eth);
-        signerRef.current = await browserProvider.getSigner();
-      }
+      // Always get a fresh signer to avoid stale nonce/provider issues
+      const browserProvider = new BrowserProvider(eth);
+      const signer = await browserProvider.getSigner();
+      signerRef.current = signer;
 
       const data = hexlify(toUtf8Bytes(`2048:move:${direction}:${moveNumber}`));
-      const tx = await signerRef.current.sendTransaction({
+      const tx = await signer.sendTransaction({
         to: RECIPIENT,
         value: MOVE_AMOUNT_WEI,
         data,
