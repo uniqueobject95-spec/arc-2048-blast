@@ -61,7 +61,7 @@ export default function Index() {
         <GameBoard
           tiles={game.tiles}
           onSwipe={handleSwipe}
-          disabled={pendingMove}
+          disabled={wallet.sending}
         />
 
         {/* Overlays */}
