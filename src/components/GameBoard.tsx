@@ -55,6 +55,7 @@ export default function GameBoard({ tiles, onSwipe, disabled }: Props) {
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
     touchStart.current = { x: t.clientX, y: t.clientY };
+    e.preventDefault();
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
@@ -78,7 +79,7 @@ export default function GameBoard({ tiles, onSwipe, disabled }: Props) {
       ref={boardRef}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="relative w-[320px] h-[320px] sm:w-[400px] sm:h-[400px] bg-secondary rounded-lg p-2 sm:p-3 select-none"
+      className="relative w-[320px] h-[320px] sm:w-[400px] sm:h-[400px] bg-secondary rounded-lg p-2 sm:p-3 select-none touch-none"
     >
       {/* Background grid cells */}
       <div className="grid grid-cols-4 gap-2 sm:gap-3 w-full h-full">
