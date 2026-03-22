@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 export type Direction = "up" | "down" | "left" | "right";
 
@@ -138,44 +138,53 @@ export function useGame2048() {
       moveCount: 0,
     };
   });
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const doMove = useCallback((direction: Direction): boolean => {
-    let didMove = false;
-    setState((prev) => {
-      if (prev.gameOver) return prev;
-      const result = move(prev.tiles, direction);
-      if (!result.moved) return prev;
-      didMove = true;
+    const prev = stateRef.current;
+    if (prev.gameOver) return false;
 
-      const newTiles = addRandomTile(result.tiles);
-      const newScore = prev.score + result.scoreDelta;
-      const newBest = Math.max(newScore, prev.bestScore);
-      localStorage.setItem("2048-best", String(newBest));
+    const result = move(prev.tiles, direction);
+    if (!result.moved) return false;
 
-      const won = !prev.won && newTiles.some((t) => t.value >= 2048);
-      const gameOver = isGameOver(newTiles);
+    const newTiles = addRandomTile(result.tiles);
+    const newScore = prev.score + result.scoreDelta;
+    const newBest = Math.max(newScore, prev.bestScore);
+    localStorage.setItem("2048-best", String(newBest));
 
-      return {
-        tiles: newTiles,
-        score: newScore,
-        bestScore: newBest,
-        gameOver,
-        won: won || prev.won,
-        moveCount: prev.moveCount + 1,
-      };
-    });
-    return didMove;
+    const won = !prev.won && newTiles.some((t) => t.value >= 2048);
+    const gameOver = isGameOver(newTiles);
+
+    const nextState: GameState = {
+      tiles: newTiles,
+      score: newScore,
+      bestScore: newBest,
+      gameOver,
+      won: won || prev.won,
+      moveCount: prev.moveCount + 1,
+    };
+
+    stateRef.current = nextState;
+    setState(nextState);
+    return true;
   }, []);
 
   const resetGame = useCallback(() => {
-    setState((prev) => ({
+    const nextState: GameState = {
       tiles: initTiles(),
       score: 0,
-      bestScore: prev.bestScore,
+      bestScore: stateRef.current.bestScore,
       gameOver: false,
       won: false,
       moveCount: 0,
-    }));
+    };
+
+    stateRef.current = nextState;
+    setState(nextState);
   }, []);
 
   return { ...state, doMove, resetGame };
