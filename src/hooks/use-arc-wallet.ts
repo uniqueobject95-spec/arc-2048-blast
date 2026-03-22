@@ -3,10 +3,6 @@ import { AppKit } from "@circle-fin/app-kit";
 import { createEthersAdapterFromProvider } from "@circle-fin/adapter-ethers-v6";
 import {
   BrowserProvider,
-  JsonRpcSigner,
-  parseUnits,
-  toUtf8Bytes,
-  hexlify,
   type Eip1193Provider,
 } from "ethers";
 
@@ -18,10 +14,10 @@ const ARC_TESTNET = {
   nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
   blockExplorerUrls: ["https://testnet.arcscan.app"],
 };
+const ARC_TESTNET_APPKIT_CHAIN = "Arc_Testnet" as const;
 
 const RECIPIENT = "0xEA549e458e77Fd93bf330e5EAEf730c50d8F5249";
 const MOVE_AMOUNT = "0.000001";
-const MOVE_AMOUNT_WEI = parseUnits(MOVE_AMOUNT, 18);
 
 export interface TxResult {
   hash: string;
@@ -38,7 +34,12 @@ export function useArcWallet() {
 
   const kitRef = useRef<AppKit | null>(null);
   const adapterRef = useRef<Awaited<ReturnType<typeof createEthersAdapterFromProvider>> | null>(null);
-  const signerRef = useRef<JsonRpcSigner | null>(null);
+  const sendQueueRef = useRef<Promise<TxResult | null>>(Promise.resolve(null));
+
+  const getKit = useCallback(() => {
+    if (!kitRef.current) kitRef.current = new AppKit();
+    return kitRef.current;
+  }, []);
 
   const ensureArcNetwork = useCallback(async (provider: Eip1193Provider) => {
     try {
@@ -74,11 +75,10 @@ export function useArcWallet() {
 
       const adapter = await createEthersAdapterFromProvider({ provider: eth });
       adapterRef.current = adapter;
-      kitRef.current = new AppKit();
+      getKit();
 
       const browserProvider = new BrowserProvider(eth);
       const signer = await browserProvider.getSigner();
-      signerRef.current = signer;
       setAddress(await signer.getAddress());
     } catch (err: any) {
       console.error("Wallet connect error:", err);
@@ -92,7 +92,7 @@ export function useArcWallet() {
     setAddress(null);
     kitRef.current = null;
     adapterRef.current = null;
-    signerRef.current = null;
+    sendQueueRef.current = Promise.resolve(null);
     setTxHistory([]);
     setError(null);
   }, []);
@@ -105,23 +105,35 @@ export function useArcWallet() {
     setError(null);
 
     try {
-      await ensureArcNetwork(eth);
+      const runSend = async (): Promise<TxResult | null> => {
+        await eth.request?.({ method: "eth_requestAccounts" });
+        await ensureArcNetwork(eth);
 
-      // Always get a fresh signer to avoid stale nonce/provider issues
-      const browserProvider = new BrowserProvider(eth);
-      const signer = await browserProvider.getSigner();
-      signerRef.current = signer;
+        const adapter = await createEthersAdapterFromProvider({ provider: eth });
+        adapterRef.current = adapter;
 
-      const data = hexlify(toUtf8Bytes(`2048:move:${direction}:${moveNumber}`));
-      const tx = await signer.sendTransaction({
-        to: RECIPIENT,
-        value: MOVE_AMOUNT_WEI,
-        data,
-      });
+        const result = await getKit().send({
+          from: { adapter, chain: ARC_TESTNET_APPKIT_CHAIN },
+          to: RECIPIENT,
+          amount: MOVE_AMOUNT,
+          token: "USDC",
+        });
 
-      const txResult: TxResult = { hash: tx.hash, direction, moveNumber };
-      setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
-      return txResult;
+        const hash = (result as { txHash?: string; hash?: string; message?: string })?.txHash
+          ?? (result as { txHash?: string; hash?: string; message?: string })?.hash;
+
+        if (!hash) {
+          const message = (result as { message?: string })?.message || "Transaction failed";
+          throw new Error(message);
+        }
+
+        const txResult: TxResult = { hash, direction, moveNumber };
+        setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
+        return txResult;
+      };
+
+      sendQueueRef.current = sendQueueRef.current.then(runSend, runSend);
+      return await sendQueueRef.current;
     } catch (err: any) {
       console.error("Move tx error:", err);
       const raw = err?.shortMessage || err?.message || "Transaction failed";
@@ -130,7 +142,7 @@ export function useArcWallet() {
     } finally {
       setSending(false);
     }
-  }, [address, ensureArcNetwork]);
+  }, [address, ensureArcNetwork, getKit]);
 
   return { address, connecting, sending, txHistory, error, connect, disconnect, sendMoveTx, setError };
 }
