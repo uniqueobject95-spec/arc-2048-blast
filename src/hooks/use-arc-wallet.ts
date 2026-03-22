@@ -34,7 +34,7 @@ export function useArcWallet() {
 
   const kitRef = useRef<AppKit | null>(null);
   const adapterRef = useRef<Awaited<ReturnType<typeof createEthersAdapterFromProvider>> | null>(null);
-  const sendQueueRef = useRef<Promise<TxResult | null>>(Promise.resolve(null));
+  const sendingLockRef = useRef(false);
 
   const getKit = useCallback(() => {
     if (!kitRef.current) kitRef.current = new AppKit();
@@ -92,7 +92,8 @@ export function useArcWallet() {
     setAddress(null);
     kitRef.current = null;
     adapterRef.current = null;
-    sendQueueRef.current = Promise.resolve(null);
+    sendingLockRef.current = false;
+    setSending(false);
     setTxHistory([]);
     setError(null);
   }, []);
@@ -100,46 +101,44 @@ export function useArcWallet() {
   const sendMoveTx = useCallback(async (direction: string, moveNumber: number): Promise<TxResult | null> => {
     const eth = (window as any).ethereum as Eip1193Provider | undefined;
     if (!eth || !address) return null;
+    if (sendingLockRef.current) return null;
 
+    sendingLockRef.current = true;
     setSending(true);
     setError(null);
 
     try {
-      const runSend = async (): Promise<TxResult | null> => {
-        await eth.request?.({ method: "eth_requestAccounts" });
-        await ensureArcNetwork(eth);
+      await eth.request?.({ method: "eth_requestAccounts" });
+      await ensureArcNetwork(eth);
 
-        const adapter = await createEthersAdapterFromProvider({ provider: eth });
-        adapterRef.current = adapter;
+      const adapter = await createEthersAdapterFromProvider({ provider: eth });
+      adapterRef.current = adapter;
 
-        const result = await getKit().send({
-          from: { adapter, chain: ARC_TESTNET_APPKIT_CHAIN },
-          to: RECIPIENT,
-          amount: MOVE_AMOUNT,
-          token: "USDC",
-        });
+      const result = await getKit().send({
+        from: { adapter, chain: ARC_TESTNET_APPKIT_CHAIN },
+        to: RECIPIENT,
+        amount: MOVE_AMOUNT,
+        token: "USDC",
+      });
 
-        const hash = (result as { txHash?: string; hash?: string; message?: string })?.txHash
-          ?? (result as { txHash?: string; hash?: string; message?: string })?.hash;
+      const hash = (result as { txHash?: string; hash?: string; message?: string })?.txHash
+        ?? (result as { txHash?: string; hash?: string; message?: string })?.hash;
 
-        if (!hash) {
-          const message = (result as { message?: string })?.message || "Transaction failed";
-          throw new Error(message);
-        }
+      if (!hash) {
+        const message = (result as { message?: string })?.message || "Transaction failed";
+        throw new Error(message);
+      }
 
-        const txResult: TxResult = { hash, direction, moveNumber };
-        setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
-        return txResult;
-      };
-
-      sendQueueRef.current = sendQueueRef.current.then(runSend, runSend);
-      return await sendQueueRef.current;
+      const txResult: TxResult = { hash, direction, moveNumber };
+      setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
+      return txResult;
     } catch (err: any) {
       console.error("Move tx error:", err);
       const raw = err?.shortMessage || err?.message || "Transaction failed";
       setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
       return null;
     } finally {
+      sendingLockRef.current = false;
       setSending(false);
     }
   }, [address, ensureArcNetwork, getKit]);

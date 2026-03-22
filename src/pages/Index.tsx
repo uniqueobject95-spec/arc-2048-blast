@@ -11,7 +11,7 @@ export default function Index() {
 
   const handleSwipe = useCallback(
     (dir: Direction) => {
-      if (game.gameOver) return;
+      if (game.gameOver || wallet.sending) return;
 
       const moved = game.doMove(dir);
       if (!moved) return;
@@ -25,7 +25,7 @@ export default function Index() {
         });
       }
     },
-    [game.gameOver, game.doMove, wallet.address, wallet.sendMoveTx]
+    [game.gameOver, game.doMove, wallet.address, wallet.sendMoveTx, wallet.sending]
   );
 
   return (
