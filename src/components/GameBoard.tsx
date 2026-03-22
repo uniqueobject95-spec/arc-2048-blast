@@ -55,6 +55,7 @@ export default function GameBoard({ tiles, onSwipe, disabled }: Props) {
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
     touchStart.current = { x: t.clientX, y: t.clientY };
+    e.preventDefault();
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
