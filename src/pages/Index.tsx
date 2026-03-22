@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef } from "react";
 import GameBoard from "@/components/GameBoard";
 import WalletPanel from "@/components/WalletPanel";
 import { useGame2048, type Direction } from "@/hooks/use-game-2048";
@@ -7,29 +7,25 @@ import { useArcWallet } from "@/hooks/use-arc-wallet";
 export default function Index() {
   const game = useGame2048();
   const wallet = useArcWallet();
-  const [pendingMove, setPendingMove] = useState(false);
+  const moveCountRef = useRef(0);
 
   const handleSwipe = useCallback(
-    async (dir: Direction) => {
-      if (pendingMove || game.gameOver) return;
+    (dir: Direction) => {
+      if (game.gameOver) return;
 
-      // Execute game move first
       const moved = game.doMove(dir);
       if (!moved) return;
 
-      // If wallet connected, send transaction (MetaMask popup)
+      // Fire-and-forget: queue transaction for every successful move
       if (wallet.address && wallet.sendMoveTx) {
-        setPendingMove(true);
-        try {
-          await wallet.sendMoveTx(dir, game.moveCount + 1);
-        } catch (e) {
+        moveCountRef.current += 1;
+        const moveNum = moveCountRef.current;
+        wallet.sendMoveTx(dir, moveNum).catch((e) => {
           console.error("Move tx failed:", e);
-        } finally {
-          setPendingMove(false);
-        }
+        });
       }
     },
-    [pendingMove, game.gameOver, game.doMove, game.moveCount, wallet.address, wallet.sendMoveTx]
+    [game.gameOver, game.doMove, wallet.address, wallet.sendMoveTx]
   );
 
   return (
