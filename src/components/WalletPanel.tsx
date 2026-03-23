@@ -1,4 +1,6 @@
-import type { TxResult } from "@/hooks/use-arc-wallet";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useEffect } from "react";
+import type { TxResult, LoginMethod } from "@/hooks/use-arc-wallet";
 
 interface Props {
   address: string | null;
@@ -6,7 +8,9 @@ interface Props {
   sending: boolean;
   txHistory: TxResult[];
   error: string | null;
-  onConnect: () => void;
+  loginMethod: LoginMethod | null;
+  onConnectMetaMask: () => void;
+  onConnectPrivy: (address: string) => void;
   onDisconnect: () => void;
 }
 
@@ -22,28 +26,74 @@ const directionEmoji: Record<string, string> = {
   up: "⬆️", down: "⬇️", left: "⬅️", right: "➡️",
 };
 
-export default function WalletPanel({ address, connecting, sending, txHistory, error, onConnect, onDisconnect }: Props) {
+export default function WalletPanel({
+  address, connecting, sending, txHistory, error, loginMethod,
+  onConnectMetaMask, onConnectPrivy, onDisconnect,
+}: Props) {
+  const { login, logout, authenticated, user } = usePrivy();
+  const { wallets } = useWallets();
+
+  // When Privy authenticates and has a wallet, propagate address
+  useEffect(() => {
+    if (authenticated && wallets.length > 0 && !address) {
+      const wallet = wallets[0];
+      if (wallet.address) {
+        onConnectPrivy(wallet.address);
+      }
+    }
+  }, [authenticated, wallets, address, onConnectPrivy]);
+
+  const handlePrivyLogin = () => {
+    login();
+  };
+
+  const handleDisconnect = async () => {
+    if (loginMethod === "privy") {
+      await logout();
+    }
+    onDisconnect();
+  };
+
   return (
     <div className="w-full max-w-[400px] space-y-4">
       {/* Connection */}
       {!address ? (
-        <button
-          onClick={onConnect}
-          disabled={connecting}
-          className="w-full py-3 px-4 rounded-lg bg-chain text-chain-foreground font-semibold
-            transition-all duration-150 ease-out hover:brightness-110 active:scale-[0.97]
-            disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {connecting ? "Connecting..." : "Connect Wallet to Arc Testnet"}
-        </button>
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <button
+              onClick={handlePrivyLogin}
+              disabled={connecting}
+              className="flex-1 py-3 px-4 rounded-lg bg-primary text-primary-foreground font-semibold
+                transition-all duration-150 ease-out hover:brightness-110 active:scale-[0.97]
+                disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            >
+              {connecting ? "Connecting..." : "📧 Email Login"}
+            </button>
+            <button
+              onClick={onConnectMetaMask}
+              disabled={connecting}
+              className="flex-1 py-3 px-4 rounded-lg bg-chain text-chain-foreground font-semibold
+                transition-all duration-150 ease-out hover:brightness-110 active:scale-[0.97]
+                disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            >
+              {connecting ? "Connecting..." : "🦊 MetaMask"}
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground text-center">
+            Login with email (Privy) or connect your MetaMask wallet
+          </p>
+        </div>
       ) : (
         <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-secondary">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-chain animate-pulse-chain" />
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1">
+              {loginMethod === "privy" ? "Privy" : "MetaMask"}
+            </span>
             <span className="font-mono text-sm text-secondary-foreground">{shortenAddress(address)}</span>
           </div>
           <button
-            onClick={onDisconnect}
+            onClick={handleDisconnect}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             Disconnect

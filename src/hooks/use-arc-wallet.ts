@@ -19,6 +19,8 @@ const ARC_TESTNET_APPKIT_CHAIN = "Arc_Testnet" as const;
 const RECIPIENT = "0xEA549e458e77Fd93bf330e5EAEf730c50d8F5249";
 const MOVE_AMOUNT = "0.000001";
 
+export type LoginMethod = "metamask" | "privy";
+
 export interface TxResult {
   hash: string;
   direction: string;
@@ -31,6 +33,7 @@ export function useArcWallet() {
   const [sending, setSending] = useState(false);
   const [txHistory, setTxHistory] = useState<TxResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loginMethod, setLoginMethod] = useState<LoginMethod | null>(null);
 
   const kitRef = useRef<AppKit | null>(null);
   const adapterRef = useRef<Awaited<ReturnType<typeof createEthersAdapterFromProvider>> | null>(null);
@@ -59,7 +62,8 @@ export function useArcWallet() {
     }
   }, []);
 
-  const connect = useCallback(async () => {
+  // MetaMask connect
+  const connectMetaMask = useCallback(async () => {
     const eth = (window as any).ethereum as Eip1193Provider | undefined;
     if (!eth) {
       setError("Install MetaMask or a compatible wallet to play on-chain");
@@ -80,16 +84,25 @@ export function useArcWallet() {
       const browserProvider = new BrowserProvider(eth);
       const signer = await browserProvider.getSigner();
       setAddress(await signer.getAddress());
+      setLoginMethod("metamask");
     } catch (err: any) {
       console.error("Wallet connect error:", err);
       setError(err?.message?.slice(0, 140) || "Connection failed");
     } finally {
       setConnecting(false);
     }
-  }, [ensureArcNetwork]);
+  }, [ensureArcNetwork, getKit]);
+
+  // Privy connect - sets address from Privy's wallet
+  const connectPrivy = useCallback((privyAddress: string) => {
+    setAddress(privyAddress);
+    setLoginMethod("privy");
+    setError(null);
+  }, []);
 
   const disconnect = useCallback(() => {
     setAddress(null);
+    setLoginMethod(null);
     kitRef.current = null;
     adapterRef.current = null;
     sendingLockRef.current = false;
@@ -143,5 +156,8 @@ export function useArcWallet() {
     }
   }, [address, ensureArcNetwork, getKit]);
 
-  return { address, connecting, sending, txHistory, error, connect, disconnect, sendMoveTx, setError };
+  return {
+    address, connecting, sending, txHistory, error, loginMethod,
+    connectMetaMask, connectPrivy, disconnect, sendMoveTx, setError,
+  };
 }

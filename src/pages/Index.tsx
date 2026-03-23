@@ -104,7 +104,9 @@ export default function Index() {
           sending={wallet.sending}
           txHistory={wallet.txHistory}
           error={wallet.error}
-          onConnect={wallet.connect}
+          loginMethod={wallet.loginMethod}
+          onConnectMetaMask={wallet.connectMetaMask}
+          onConnectPrivy={wallet.connectPrivy}
           onDisconnect={wallet.disconnect}
         />
       </div>
