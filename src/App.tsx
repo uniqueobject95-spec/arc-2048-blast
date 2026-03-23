@@ -33,7 +33,9 @@ const App = () => (
         accentColor: "#e8a320",
       },
       embeddedWallets: {
-        createOnLogin: "users-without-wallets",
+        ethereum: {
+          createOnLogin: "users-without-wallets",
+        },
       },
       supportedChains: [ARC_TESTNET_CHAIN as any],
       defaultChain: ARC_TESTNET_CHAIN as any,
