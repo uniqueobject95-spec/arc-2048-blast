@@ -38,6 +38,8 @@ export function useArcWallet() {
   const kitRef = useRef<AppKit | null>(null);
   const adapterRef = useRef<Awaited<ReturnType<typeof createEthersAdapterFromProvider>> | null>(null);
   const sendingLockRef = useRef(false);
+  // Store the active provider so we use the correct one (embedded vs MetaMask)
+  const providerRef = useRef<Eip1193Provider | null>(null);
 
   const getKit = useCallback(() => {
     if (!kitRef.current) kitRef.current = new AppKit();
@@ -79,6 +81,7 @@ export function useArcWallet() {
 
       const adapter = await createEthersAdapterFromProvider({ provider: eth });
       adapterRef.current = adapter;
+      providerRef.current = eth;
       getKit();
 
       const browserProvider = new BrowserProvider(eth);
@@ -93,18 +96,33 @@ export function useArcWallet() {
     }
   }, [ensureArcNetwork, getKit]);
 
-  // Privy connect - sets address from Privy's wallet
-  const connectPrivy = useCallback((privyAddress: string) => {
-    setAddress(privyAddress);
-    setLoginMethod("privy");
+  // Privy connect - accepts the embedded wallet's EIP-1193 provider
+  const connectPrivy = useCallback(async (privyAddress: string, privyProvider: Eip1193Provider) => {
     setError(null);
-  }, []);
+    try {
+      providerRef.current = privyProvider;
+
+      // Switch embedded wallet to Arc Testnet
+      await ensureArcNetwork(privyProvider);
+
+      const adapter = await createEthersAdapterFromProvider({ provider: privyProvider });
+      adapterRef.current = adapter;
+      getKit();
+
+      setAddress(privyAddress);
+      setLoginMethod("privy");
+    } catch (err: any) {
+      console.error("Privy wallet setup error:", err);
+      setError(err?.message?.slice(0, 140) || "Wallet setup failed");
+    }
+  }, [ensureArcNetwork, getKit]);
 
   const disconnect = useCallback(() => {
     setAddress(null);
     setLoginMethod(null);
     kitRef.current = null;
     adapterRef.current = null;
+    providerRef.current = null;
     sendingLockRef.current = false;
     setSending(false);
     setTxHistory([]);
@@ -112,8 +130,8 @@ export function useArcWallet() {
   }, []);
 
   const sendMoveTx = useCallback(async (direction: string, moveNumber: number): Promise<TxResult | null> => {
-    const eth = (window as any).ethereum as Eip1193Provider | undefined;
-    if (!eth || !address) return null;
+    const provider = providerRef.current;
+    if (!provider || !address) return null;
     if (sendingLockRef.current) return null;
 
     sendingLockRef.current = true;
@@ -121,10 +139,8 @@ export function useArcWallet() {
     setError(null);
 
     try {
-      await eth.request?.({ method: "eth_requestAccounts" });
-      await ensureArcNetwork(eth);
-
-      const adapter = await createEthersAdapterFromProvider({ provider: eth });
+      // Re-create adapter from the stored provider each time to avoid stale state
+      const adapter = await createEthersAdapterFromProvider({ provider });
       adapterRef.current = adapter;
 
       const result = await getKit().send({
@@ -154,7 +170,7 @@ export function useArcWallet() {
       sendingLockRef.current = false;
       setSending(false);
     }
-  }, [address, ensureArcNetwork, getKit]);
+  }, [address, getKit]);
 
   return {
     address, connecting, sending, txHistory, error, loginMethod,
