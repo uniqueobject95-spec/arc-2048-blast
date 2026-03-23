@@ -27,7 +27,7 @@ const App = () => (
   <PrivyProvider
     appId="cmldshsad031nl70bfn13p3a1"
     config={{
-      loginMethods: ["email", "wallet"],
+      loginMethods: ["email"],
       appearance: {
         theme: "dark",
         accentColor: "#e8a320",

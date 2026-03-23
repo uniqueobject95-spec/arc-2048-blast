@@ -1,6 +1,7 @@
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import type { TxResult, LoginMethod } from "@/hooks/use-arc-wallet";
+import type { Eip1193Provider } from "ethers";
 
 interface Props {
   address: string | null;
@@ -10,7 +11,7 @@ interface Props {
   error: string | null;
   loginMethod: LoginMethod | null;
   onConnectMetaMask: () => void;
-  onConnectPrivy: (address: string) => void;
+  onConnectPrivy: (address: string, provider: Eip1193Provider) => void;
   onDisconnect: () => void;
 }
 
@@ -30,18 +31,28 @@ export default function WalletPanel({
   address, connecting, sending, txHistory, error, loginMethod,
   onConnectMetaMask, onConnectPrivy, onDisconnect,
 }: Props) {
-  const { login, logout, authenticated, user } = usePrivy();
+  const { login, logout, authenticated } = usePrivy();
   const { wallets } = useWallets();
 
-  // When Privy authenticates and has a wallet, propagate address
-  useEffect(() => {
-    if (authenticated && wallets.length > 0 && !address) {
-      const wallet = wallets[0];
-      if (wallet.address) {
-        onConnectPrivy(wallet.address);
-      }
+  // When Privy authenticates, find the EMBEDDED wallet and pass its provider
+  const setupPrivyWallet = useCallback(async () => {
+    if (!authenticated || address) return;
+    
+    // Find the Privy embedded wallet specifically
+    const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
+    if (!embeddedWallet) return;
+
+    try {
+      const provider = await embeddedWallet.getEthereumProvider();
+      onConnectPrivy(embeddedWallet.address, provider as Eip1193Provider);
+    } catch (err) {
+      console.error("Failed to get embedded wallet provider:", err);
     }
   }, [authenticated, wallets, address, onConnectPrivy]);
+
+  useEffect(() => {
+    setupPrivyWallet();
+  }, [setupPrivyWallet]);
 
   const handlePrivyLogin = () => {
     login();
@@ -80,7 +91,7 @@ export default function WalletPanel({
             </button>
           </div>
           <p className="text-[11px] text-muted-foreground text-center">
-            Login with email (Privy) or connect your MetaMask wallet
+            Login with email or connect your MetaMask wallet
           </p>
         </div>
       ) : (
@@ -88,7 +99,7 @@ export default function WalletPanel({
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-chain animate-pulse-chain" />
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1">
-              {loginMethod === "privy" ? "Privy" : "MetaMask"}
+              {loginMethod === "privy" ? "Email" : "MetaMask"}
             </span>
             <span className="font-mono text-sm text-secondary-foreground">{shortenAddress(address)}</span>
           </div>
