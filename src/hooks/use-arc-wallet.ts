@@ -82,7 +82,6 @@ export function useArcWallet() {
       await ensureArcNetwork(eth);
 
       const adapter = await createEthersAdapterFromProvider({ provider: eth });
-      adapterRef.current = adapter;
       providerRef.current = eth;
       getKit();
 
