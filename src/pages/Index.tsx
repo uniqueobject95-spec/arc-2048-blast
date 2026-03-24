@@ -11,7 +11,9 @@ export default function Index() {
 
   const handleSwipe = useCallback(
     (dir: Direction) => {
-      if (game.gameOver || wallet.sending) return;
+      if (game.gameOver) return;
+      // For MetaMask: block while sending. For Privy: never block (optimistic).
+      if (wallet.loginMethod === "metamask" && wallet.sending) return;
 
       const moved = game.doMove(dir);
       if (!moved) return;
@@ -25,7 +27,7 @@ export default function Index() {
         });
       }
     },
-    [game.gameOver, game.doMove, wallet.address, wallet.sendMoveTx, wallet.sending]
+    [game.gameOver, game.doMove, wallet.address, wallet.sendMoveTx, wallet.sending, wallet.loginMethod]
   );
 
   return (
@@ -61,7 +63,7 @@ export default function Index() {
         <GameBoard
           tiles={game.tiles}
           onSwipe={handleSwipe}
-          disabled={wallet.sending}
+          disabled={wallet.loginMethod === "metamask" && wallet.sending}
         />
 
         {/* Overlays */}

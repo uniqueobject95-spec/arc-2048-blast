@@ -1,7 +1,8 @@
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import type { TxResult, LoginMethod } from "@/hooks/use-arc-wallet";
 import type { Eip1193Provider } from "ethers";
+import { Copy, Check } from "lucide-react";
 
 interface Props {
   address: string | null;
@@ -27,6 +28,30 @@ const directionEmoji: Record<string, string> = {
   up: "⬆️", down: "⬇️", left: "⬅️", right: "➡️",
 };
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // fallback
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+      title="Copy address"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-chain" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
 export default function WalletPanel({
   address, connecting, sending, txHistory, error, loginMethod,
   onConnectMetaMask, onConnectPrivy, onDisconnect,
@@ -38,7 +63,6 @@ export default function WalletPanel({
   const setupPrivyWallet = useCallback(async () => {
     if (!authenticated || address) return;
     
-    // Find the Privy embedded wallet specifically
     const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
     if (!embeddedWallet) return;
 
@@ -95,13 +119,14 @@ export default function WalletPanel({
           </p>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-secondary">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 rounded-lg bg-secondary">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-chain animate-pulse-chain" />
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1">
               {loginMethod === "privy" ? "Email" : "MetaMask"}
             </span>
             <span className="font-mono text-sm text-secondary-foreground">{shortenAddress(address)}</span>
+            <CopyButton text={address} />
           </div>
           <button
             onClick={handleDisconnect}

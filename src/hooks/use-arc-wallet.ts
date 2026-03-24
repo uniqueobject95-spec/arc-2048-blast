@@ -37,8 +37,7 @@ export function useArcWallet() {
 
   const kitRef = useRef<AppKit | null>(null);
   const adapterRef = useRef<Awaited<ReturnType<typeof createEthersAdapterFromProvider>> | null>(null);
-  const sendingLockRef = useRef(false);
-  // Store the active provider so we use the correct one (embedded vs MetaMask)
+  // No sending lock - allow concurrent silent transactions
   const providerRef = useRef<Eip1193Provider | null>(null);
 
   const getKit = useCallback(() => {
@@ -123,25 +122,24 @@ export function useArcWallet() {
     kitRef.current = null;
     adapterRef.current = null;
     providerRef.current = null;
-    sendingLockRef.current = false;
     setSending(false);
     setTxHistory([]);
     setError(null);
   }, []);
 
+  // Optimistic & silent: fire-and-forget for Privy, blocking for MetaMask
   const sendMoveTx = useCallback(async (direction: string, moveNumber: number): Promise<TxResult | null> => {
     const provider = providerRef.current;
     if (!provider || !address) return null;
-    if (sendingLockRef.current) return null;
 
-    sendingLockRef.current = true;
-    setSending(true);
+    // For Privy: don't block the UI at all - fully silent
+    // For MetaMask: show sending state since user needs to approve
+    const isPrivy = loginMethod === "privy";
+    if (!isPrivy) setSending(true);
     setError(null);
 
     try {
-      // Re-create adapter from the stored provider each time to avoid stale state
       const adapter = await createEthersAdapterFromProvider({ provider });
-      adapterRef.current = adapter;
 
       const result = await getKit().send({
         from: { adapter, chain: ARC_TESTNET_APPKIT_CHAIN },
@@ -167,10 +165,9 @@ export function useArcWallet() {
       setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
       return null;
     } finally {
-      sendingLockRef.current = false;
-      setSending(false);
+      if (!isPrivy) setSending(false);
     }
-  }, [address, getKit]);
+  }, [address, loginMethod, getKit]);
 
   return {
     address, connecting, sending, txHistory, error, loginMethod,
