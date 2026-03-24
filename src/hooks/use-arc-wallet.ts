@@ -1,12 +1,15 @@
 import { useState, useCallback, useRef } from "react";
 import { AppKit } from "@circle-fin/app-kit";
 import { createEthersAdapterFromProvider } from "@circle-fin/adapter-ethers-v6";
+import { useSendTransaction } from "@privy-io/react-auth";
 import {
   BrowserProvider,
+  parseUnits,
   type Eip1193Provider,
 } from "ethers";
 
 const ARC_TESTNET_CHAIN_ID = "0x4cef52";
+const ARC_TESTNET_CHAIN_ID_DEC = 5042002;
 const ARC_TESTNET = {
   chainId: ARC_TESTNET_CHAIN_ID,
   chainName: "Arc Testnet",
@@ -34,11 +37,11 @@ export function useArcWallet() {
   const [txHistory, setTxHistory] = useState<TxResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loginMethod, setLoginMethod] = useState<LoginMethod | null>(null);
+  const { sendTransaction: sendPrivyTransaction } = useSendTransaction();
 
   const kitRef = useRef<AppKit | null>(null);
-  const adapterRef = useRef<Awaited<ReturnType<typeof createEthersAdapterFromProvider>> | null>(null);
-  // No sending lock - allow concurrent silent transactions
   const providerRef = useRef<Eip1193Provider | null>(null);
+  const privyTxQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
   const getKit = useCallback(() => {
     if (!kitRef.current) kitRef.current = new AppKit();
@@ -104,24 +107,26 @@ export function useArcWallet() {
       // Switch embedded wallet to Arc Testnet
       await ensureArcNetwork(privyProvider);
 
-      const adapter = await createEthersAdapterFromProvider({ provider: privyProvider });
-      adapterRef.current = adapter;
-      getKit();
-
       setAddress(privyAddress);
       setLoginMethod("privy");
     } catch (err: any) {
       console.error("Privy wallet setup error:", err);
       setError(err?.message?.slice(0, 140) || "Wallet setup failed");
     }
-  }, [ensureArcNetwork, getKit]);
+  }, [ensureArcNetwork]);
+
+  const enqueuePrivyTx = useCallback(<T,>(job: () => Promise<T>) => {
+    const run = privyTxQueueRef.current.then(job, job);
+    privyTxQueueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  }, []);
 
   const disconnect = useCallback(() => {
     setAddress(null);
     setLoginMethod(null);
     kitRef.current = null;
-    adapterRef.current = null;
     providerRef.current = null;
+    privyTxQueueRef.current = Promise.resolve();
     setSending(false);
     setTxHistory([]);
     setError(null);
@@ -129,14 +134,48 @@ export function useArcWallet() {
 
   // Optimistic & silent: fire-and-forget for Privy, blocking for MetaMask
   const sendMoveTx = useCallback(async (direction: string, moveNumber: number): Promise<TxResult | null> => {
-    const provider = providerRef.current;
-    if (!provider || !address) return null;
+    if (!address) return null;
 
-    // For Privy: don't block the UI at all - fully silent
-    // For MetaMask: show sending state since user needs to approve
     const isPrivy = loginMethod === "privy";
-    if (!isPrivy) setSending(true);
     setError(null);
+
+    if (isPrivy) {
+      return enqueuePrivyTx(async () => {
+        try {
+          const privyResult = await sendPrivyTransaction(
+            {
+              to: RECIPIENT,
+              value: parseUnits(MOVE_AMOUNT, 18),
+              chainId: ARC_TESTNET_CHAIN_ID_DEC,
+            },
+            {
+              sponsor: true,
+              uiOptions: {
+                showWalletUIs: false,
+                isCancellable: false,
+              },
+              address,
+            },
+          );
+
+          const hash = privyResult?.hash;
+          if (!hash) throw new Error("Transaction failed");
+
+          const txResult: TxResult = { hash, direction, moveNumber };
+          setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
+          return txResult;
+        } catch (err: any) {
+          console.error("Privy move tx error:", err);
+          const raw = err?.shortMessage || err?.message || "Transaction failed";
+          setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
+          return null;
+        }
+      });
+    }
+
+    const provider = providerRef.current;
+    if (!provider) return null;
+    setSending(true);
 
     try {
       const adapter = await createEthersAdapterFromProvider({ provider });
@@ -165,9 +204,9 @@ export function useArcWallet() {
       setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
       return null;
     } finally {
-      if (!isPrivy) setSending(false);
+      setSending(false);
     }
-  }, [address, loginMethod, getKit]);
+  }, [address, loginMethod, getKit, enqueuePrivyTx, sendPrivyTransaction]);
 
   return {
     address, connecting, sending, txHistory, error, loginMethod,
