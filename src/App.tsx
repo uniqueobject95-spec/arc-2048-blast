@@ -33,6 +33,7 @@ const App = () => (
         accentColor: "#e8a320",
       },
       embeddedWallets: {
+        showWalletUIs: false,
         ethereum: {
           createOnLogin: "users-without-wallets",
         },
