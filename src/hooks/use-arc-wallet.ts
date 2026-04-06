@@ -161,7 +161,7 @@ export function useArcWallet() {
                 chainId: ARC_TESTNET_CHAIN_ID_DEC,
               },
               {
-                sponsor: true,
+                sponsor: false,
                 uiOptions: { showWalletUIs: false, isCancellable: false },
                 address,
               },
