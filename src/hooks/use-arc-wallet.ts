@@ -6,7 +6,6 @@ import {
   BrowserProvider,
   parseUnits,
   formatUnits,
-  Contract,
   type Eip1193Provider,
 } from "ethers";
 import type { TxSettings } from "@/components/TransactionSettings";
