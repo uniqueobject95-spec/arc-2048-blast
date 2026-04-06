@@ -25,11 +25,24 @@ function fontSize(value: number) {
   return "text-2xl sm:text-3xl";
 }
 
+// Glow effect for high-value tiles
+function tileGlow(value: number) {
+  if (value >= 2048) return "shadow-[0_0_20px_hsl(var(--tile-2048)/0.5)]";
+  if (value >= 1024) return "shadow-[0_0_15px_hsl(var(--tile-1024)/0.4)]";
+  if (value >= 512) return "shadow-[0_0_10px_hsl(var(--tile-512)/0.3)]";
+  return "";
+}
+
 interface Props {
   tiles: TileData[];
   onSwipe: (dir: "up" | "down" | "left" | "right") => void;
   disabled: boolean;
 }
+
+const GAP = 8;
+const GAP_SM = 12;
+const PAD = 8;
+const PAD_SM = 12;
 
 export default function GameBoard({ tiles, onSwipe, disabled }: Props) {
   const boardRef = useRef<HTMLDivElement>(null);
@@ -79,43 +92,36 @@ export default function GameBoard({ tiles, onSwipe, disabled }: Props) {
       ref={boardRef}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="relative w-[320px] h-[320px] sm:w-[400px] sm:h-[400px] bg-secondary rounded-lg p-2 sm:p-3 select-none touch-none"
+      className="relative w-[320px] h-[320px] sm:w-[420px] sm:h-[420px] rounded-2xl p-2 sm:p-3 select-none touch-none
+        bg-gradient-to-br from-secondary to-muted shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
     >
       {/* Background grid cells */}
       <div className="grid grid-cols-4 gap-2 sm:gap-3 w-full h-full">
         {Array.from({ length: 16 }).map((_, i) => (
-          <div key={i} className="bg-muted rounded-md" />
+          <div key={i} className="bg-background/30 rounded-lg" />
         ))}
       </div>
 
-      {/* Tiles */}
-      {tiles.map((tile) => {
-        const cellSize = "calc((100% - 3 * 0.5rem) / 4)";
-        const cellSizeSm = "calc((100% - 3 * 0.75rem) / 4)";
-        const gapPx = 8;
-        const gapPxSm = 12;
-        const padPx = 8;
-        const padPxSm = 12;
-
-        return (
-          <div
-            key={tile.id}
-            className={`absolute flex items-center justify-center rounded-md font-bold font-mono transition-all duration-150 ease-out
-              ${tileClass(tile.value)} ${fontSize(tile.value)}
-              ${tile.isNew ? "animate-tile-pop" : ""}
-              ${tile.isMerged ? "animate-tile-merge" : ""}
-            `}
-            style={{
-              width: `calc((100% - ${padPx * 2}px - ${gapPx * 3}px) / 4)`,
-              height: `calc((100% - ${padPx * 2}px - ${gapPx * 3}px) / 4)`,
-              left: `calc(${padPx}px + ${tile.col} * (((100% - ${padPx * 2}px - ${gapPx * 3}px) / 4) + ${gapPx}px))`,
-              top: `calc(${padPx}px + ${tile.row} * (((100% - ${padPx * 2}px - ${gapPx * 3}px) / 4) + ${gapPx}px))`,
-            }}
-          >
-            {tile.value}
-          </div>
-        );
-      })}
+      {/* Tiles — CSS transitions handle the sliding */}
+      {tiles.map((tile) => (
+        <div
+          key={tile.id}
+          className={`absolute flex items-center justify-center rounded-lg font-bold font-mono
+            transition-[left,top] duration-[120ms] ease-[cubic-bezier(0.25,0.1,0.25,1)]
+            ${tileClass(tile.value)} ${fontSize(tile.value)} ${tileGlow(tile.value)}
+            ${tile.isNew ? "animate-tile-pop" : ""}
+            ${tile.isMerged ? "animate-tile-merge" : ""}
+          `}
+          style={{
+            width: `calc((100% - ${PAD * 2}px - ${GAP * 3}px) / 4)`,
+            height: `calc((100% - ${PAD * 2}px - ${GAP * 3}px) / 4)`,
+            left: `calc(${PAD}px + ${tile.col} * (((100% - ${PAD * 2}px - ${GAP * 3}px) / 4) + ${GAP}px))`,
+            top: `calc(${PAD}px + ${tile.row} * (((100% - ${PAD * 2}px - ${GAP * 3}px) / 4) + ${GAP}px))`,
+          }}
+        >
+          {tile.value}
+        </div>
+      ))}
     </div>
   );
 }
