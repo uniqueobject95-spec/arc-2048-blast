@@ -5,8 +5,11 @@ import { useSendTransaction } from "@privy-io/react-auth";
 import {
   BrowserProvider,
   parseUnits,
+  formatUnits,
   type Eip1193Provider,
 } from "ethers";
+import type { TxSettings } from "@/components/TransactionSettings";
+import { resolveAmount, resolveRecipients } from "@/components/TransactionSettings";
 
 const ARC_TESTNET_CHAIN_ID = "0x4cef52";
 const ARC_TESTNET_CHAIN_ID_DEC = 5042002;
@@ -18,9 +21,6 @@ const ARC_TESTNET = {
   blockExplorerUrls: ["https://testnet.arcscan.app"],
 };
 const ARC_TESTNET_APPKIT_CHAIN = "Arc_Testnet" as const;
-
-const RECIPIENT = "0xEA549e458e77Fd93bf330e5EAEf730c50d8F5249";
-const MOVE_AMOUNT = "0.000001";
 
 export type LoginMethod = "metamask" | "privy";
 
@@ -37,6 +37,7 @@ export function useArcWallet() {
   const [txHistory, setTxHistory] = useState<TxResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loginMethod, setLoginMethod] = useState<LoginMethod | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const { sendTransaction: sendPrivyTransaction } = useSendTransaction();
 
   const kitRef = useRef<AppKit | null>(null);
@@ -46,6 +47,16 @@ export function useArcWallet() {
   const getKit = useCallback(() => {
     if (!kitRef.current) kitRef.current = new AppKit();
     return kitRef.current;
+  }, []);
+
+  const fetchBalance = useCallback(async (provider: Eip1193Provider, addr: string) => {
+    try {
+      const bp = new BrowserProvider(provider);
+      const bal = await bp.getBalance(addr);
+      setUsdcBalance(parseFloat(formatUnits(bal, 18)).toFixed(6));
+    } catch {
+      setUsdcBalance(null);
+    }
   }, []);
 
   const ensureArcNetwork = useCallback(async (provider: Eip1193Provider) => {
@@ -66,53 +77,45 @@ export function useArcWallet() {
     }
   }, []);
 
-  // MetaMask connect
   const connectMetaMask = useCallback(async () => {
     const eth = (window as any).ethereum as Eip1193Provider | undefined;
     if (!eth) {
       setError("Install MetaMask or a compatible wallet to play on-chain");
       return;
     }
-
     setConnecting(true);
     setError(null);
-
     try {
       await eth.request?.({ method: "eth_requestAccounts" });
       await ensureArcNetwork(eth);
-
-      const adapter = await createEthersAdapterFromProvider({ provider: eth });
+      await createEthersAdapterFromProvider({ provider: eth });
       providerRef.current = eth;
       getKit();
-
-      const browserProvider = new BrowserProvider(eth);
-      const signer = await browserProvider.getSigner();
-      setAddress(await signer.getAddress());
+      const bp = new BrowserProvider(eth);
+      const signer = await bp.getSigner();
+      const addr = await signer.getAddress();
+      setAddress(addr);
       setLoginMethod("metamask");
+      fetchBalance(eth, addr);
     } catch (err: any) {
-      console.error("Wallet connect error:", err);
       setError(err?.message?.slice(0, 140) || "Connection failed");
     } finally {
       setConnecting(false);
     }
-  }, [ensureArcNetwork, getKit]);
+  }, [ensureArcNetwork, getKit, fetchBalance]);
 
-  // Privy connect - accepts the embedded wallet's EIP-1193 provider
   const connectPrivy = useCallback(async (privyAddress: string, privyProvider: Eip1193Provider) => {
     setError(null);
     try {
       providerRef.current = privyProvider;
-
-      // Switch embedded wallet to Arc Testnet
       await ensureArcNetwork(privyProvider);
-
       setAddress(privyAddress);
       setLoginMethod("privy");
+      fetchBalance(privyProvider, privyAddress);
     } catch (err: any) {
-      console.error("Privy wallet setup error:", err);
       setError(err?.message?.slice(0, 140) || "Wallet setup failed");
     }
-  }, [ensureArcNetwork]);
+  }, [ensureArcNetwork, fetchBalance]);
 
   const enqueuePrivyTx = useCallback(<T,>(job: () => Promise<T>) => {
     const run = privyTxQueueRef.current.then(job, job);
@@ -129,86 +132,92 @@ export function useArcWallet() {
     setSending(false);
     setTxHistory([]);
     setError(null);
+    setUsdcBalance(null);
   }, []);
 
-  // Optimistic & silent: fire-and-forget for Privy, blocking for MetaMask
-  const sendMoveTx = useCallback(async (direction: string, moveNumber: number): Promise<TxResult | null> => {
+  const sendMoveTx = useCallback(async (
+    direction: string,
+    moveNumber: number,
+    txSettings: TxSettings
+  ): Promise<TxResult | null> => {
     if (!address) return null;
 
+    const recipients = resolveRecipients(txSettings);
+    if (recipients.length === 0) return null;
+
+    const amount = resolveAmount(txSettings);
     const isPrivy = loginMethod === "privy";
     setError(null);
 
-    if (isPrivy) {
-      return enqueuePrivyTx(async () => {
-        try {
-          const privyResult = await sendPrivyTransaction(
-            {
-              to: RECIPIENT,
-              value: parseUnits(MOVE_AMOUNT, 18),
-              chainId: ARC_TESTNET_CHAIN_ID_DEC,
-            },
-            {
-              sponsor: true,
-              uiOptions: {
-                showWalletUIs: false,
-                isCancellable: false,
+    // Send to all recipients
+    const sendToRecipient = async (recipient: string): Promise<TxResult | null> => {
+      if (isPrivy) {
+        return enqueuePrivyTx(async () => {
+          try {
+            const result = await sendPrivyTransaction(
+              {
+                to: recipient,
+                value: parseUnits(amount, 18),
+                chainId: ARC_TESTNET_CHAIN_ID_DEC,
               },
-              address,
-            },
-          );
-
-          const hash = privyResult?.hash;
-          if (!hash) throw new Error("Transaction failed");
-
-          const txResult: TxResult = { hash, direction, moveNumber };
-          setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
-          return txResult;
-        } catch (err: any) {
-          console.error("Privy move tx error:", err);
-          const raw = err?.shortMessage || err?.message || "Transaction failed";
-          setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
-          return null;
-        }
-      });
-    }
-
-    const provider = providerRef.current;
-    if (!provider) return null;
-    setSending(true);
-
-    try {
-      const adapter = await createEthersAdapterFromProvider({ provider });
-
-      const result = await getKit().send({
-        from: { adapter, chain: ARC_TESTNET_APPKIT_CHAIN },
-        to: RECIPIENT,
-        amount: MOVE_AMOUNT,
-        token: "USDC",
-      });
-
-      const hash = (result as { txHash?: string; hash?: string; message?: string })?.txHash
-        ?? (result as { txHash?: string; hash?: string; message?: string })?.hash;
-
-      if (!hash) {
-        const message = (result as { message?: string })?.message || "Transaction failed";
-        throw new Error(message);
+              {
+                sponsor: true,
+                uiOptions: { showWalletUIs: false, isCancellable: false },
+                address,
+              },
+            );
+            const hash = result?.hash;
+            if (!hash) throw new Error("Transaction failed");
+            const txResult: TxResult = { hash, direction, moveNumber };
+            setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
+            return txResult;
+          } catch (err: any) {
+            const raw = err?.shortMessage || err?.message || "Transaction failed";
+            setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
+            return null;
+          }
+        });
       }
 
-      const txResult: TxResult = { hash, direction, moveNumber };
-      setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
-      return txResult;
-    } catch (err: any) {
-      console.error("Move tx error:", err);
-      const raw = err?.shortMessage || err?.message || "Transaction failed";
-      setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
-      return null;
-    } finally {
-      setSending(false);
+      // MetaMask flow
+      const provider = providerRef.current;
+      if (!provider) return null;
+      setSending(true);
+      try {
+        const adapter = await createEthersAdapterFromProvider({ provider });
+        const result = await getKit().send({
+          from: { adapter, chain: ARC_TESTNET_APPKIT_CHAIN },
+          to: recipient,
+          amount,
+          token: "USDC",
+        });
+        const hash = (result as any)?.txHash ?? (result as any)?.hash;
+        if (!hash) throw new Error((result as any)?.message || "Transaction failed");
+        const txResult: TxResult = { hash, direction, moveNumber };
+        setTxHistory((prev) => [txResult, ...prev].slice(0, 50));
+        return txResult;
+      } catch (err: any) {
+        const raw = err?.shortMessage || err?.message || "Transaction failed";
+        setError(raw.length > 140 ? `${raw.slice(0, 140)}...` : raw);
+        return null;
+      } finally {
+        setSending(false);
+      }
+    };
+
+    // Fire all recipient sends
+    const results = await Promise.all(recipients.map(sendToRecipient));
+
+    // Refresh balance after tx
+    if (providerRef.current && address) {
+      fetchBalance(providerRef.current, address);
     }
-  }, [address, loginMethod, getKit, enqueuePrivyTx, sendPrivyTransaction]);
+
+    return results.find((r) => r !== null) || null;
+  }, [address, loginMethod, getKit, enqueuePrivyTx, sendPrivyTransaction, fetchBalance]);
 
   return {
-    address, connecting, sending, txHistory, error, loginMethod,
+    address, connecting, sending, txHistory, error, loginMethod, usdcBalance,
     connectMetaMask, connectPrivy, disconnect, sendMoveTx, setError,
   };
 }
